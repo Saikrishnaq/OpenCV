@@ -1,0 +1,51 @@
+# ENTIRE SUSPIOUS DETECTION 
+import cv2
+import torch
+from torchvision import models, transforms
+from pytubefix import YouTube
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+resnet = models.resnet50(pretrained=True).to(device).eval() # Deep Learning Model 
+feature_extractor = torch.nn.Sequential(*list(resnet.children())[:-1]).to(device).eval() 
+preprocess = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize(224),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406],
+                         [0.229, 0.224, 0.225])
+])
+def extract_features(frame):
+    img = preprocess(frame).unsqueeze(0).to(device)
+    with torch.no_grad():
+        features = feature_extractor(img).view(1, -1)
+    return features.cpu()
+def download_video(url):
+    yt = YouTube(url)
+    video = yt.streams.filter(progressive=True, file_extension='mp4') \
+                      .order_by('resolution').desc().first()
+    return video.download(filename="video.mp4")
+def detect_theft(video_path):
+    cap = cv2.VideoCapture(video_path)
+    seq_feats = []
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        feat = extract_features(frame)
+        seq_feats.append(feat)
+        if len(seq_feats) > 5:
+            seq_feats.pop(0)
+        label = "Normal" if len(seq_feats) < 5 else "Suspicious"
+        color = (0, 255, 0) if label == "Normal" else (0, 0, 255)
+        cv2.putText(frame, label, (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        cv2.imshow("Theft Detection", frame)
+        if cv2.waitKey(30) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+if __name__ == "__main__":
+    url = input("Enter YouTube URL: ").strip()
+    video_file = download_video(url)
+    detect_theft(video_file)
